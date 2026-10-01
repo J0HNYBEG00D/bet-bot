@@ -3,20 +3,22 @@ import requests
 import time
 from datetime import datetime
 
-# ==================== ΑΣΦΑΛΕΙΣ ΡΥΘΜΙΣΕΙΣ GITHUB ====================
-SHARP_API_KEY = os.environ.get(sk_live_R3DYcn94iH9E3i4Ty7Fpj5)
-THE_ODDS_API_KEY = os.environ.get(10623a7bf6655a94344f3806bfbdd221)
-TELEGRAM_TOKEN = os.environ.get(8681374737:AAGw8nJlT8We0oaT1FiIafnpCMoJMDJYZ3g)
-CHAT_ID = os.environ.get(5429007872)
+# ==================== GITHUB SECRETS ====================
+SHARP_API_KEY = os.environ.get("SHARP_API_KEY", "")
+THE_ODDS_API_KEY = os.environ.get("THE_ODDS_API_KEY", "")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+CHAT_ID = os.environ.get("CHAT_ID", "")
 
 GREEK_BOOKIES = ['bet365', 'stoiximan', 'betano']
-# ===================================================================
+# ========================================================
 
 def send_telegram_alert(message):
     url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try: requests.post(url, json=payload)
-    except Exception as e: print(f"Σφάλμα Telegram: {e}")
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Σφάλμα Telegram: {e}")
 
 def check_live_matches_sharp():
     print(f"[{datetime.now().strftime('%H:%M')}] Έλεγχος SharpAPI...")
@@ -24,12 +26,26 @@ def check_live_matches_sharp():
     headers = {"Authorization": f"Bearer {SHARP_API_KEY}"}
     
     try:
-        response = requests.get(sharp_url, headers=headers).json()
+        res = requests.get(sharp_url, headers=headers, timeout=15)
+        if res.status_code != 200:
+            print(f"Το SharpAPI επέστρεψε κωδικό: {res.status_code}")
+            return []
+            
+        response = res.json()
         suspicious_matches = []
+        
+        # Ασφαλής ανάγνωση λίστας αγώνων
         matches = response.get('results', response.get('data', []))
+        if not isinstance(matches, list):
+            return []
+            
         for match in matches:
-            league = match.get('league', {}).get('name', '')
+            if not isinstance(match, dict):
+                continue
+            league = match.get('league', {}).get('name', '') if isinstance(match.get('league'), dict) else ''
+            
             if "India" in league or "Cambodia" in league:
+                # Έλεγχος πτώσης με ασφάλεια
                 if match.get('dropping_odds', False) or match.get('odds_drop_pct', 0) >= 15:
                     suspicious_matches.append(match)
         return suspicious_matches
@@ -42,31 +58,45 @@ def find_value_in_greek_bookies(home_team, away_team):
     odds_url = f"https://the-odds-api.com{THE_ODDS_API_KEY}&regions=eu&markets=totals"
     
     try:
-        response = requests.get(odds_url).json()
+        res = requests.get(odds_url, timeout=15)
+        if res.status_code != 200:
+            print(f"Το The Odds API επέστρεψε κωδικό: {res.status_code}")
+            return
+            
+        response = res.json()
+        if not isinstance(response, list):
+            return
+
         for match in response:
-            if home_team.lower() in match['home_team'].lower() or match['home_team'].lower() in home_team.lower():
+            if not isinstance(match, dict):
+                continue
+            h_team = match.get('home_team', '')
+            a_team = match.get('away_team', '')
+            
+            if home_team.lower() in h_team.lower() or h_team.lower() in home_team.lower():
                 pinnacle_over_odd = None
+                
                 for bookmaker in match.get('bookmakers', []):
-                    if bookmaker['key'] == 'pinnacle':
-                        for market in bookmaker['markets']:
-                            if market['key'] == 'totals':
-                                for outcome in market['outcomes']:
-                                    if outcome['name'] == 'Over' and outcome['point'] == 2.5:
-                                        pinnacle_over_odd = outcome['price']
+                    if bookmaker.get('key') == 'pinnacle':
+                        for market in bookmaker.get('markets', []):
+                            if market.get('key') == 'totals':
+                                for outcome in market.get('outcomes', []):
+                                    if outcome.get('name') == 'Over' and outcome.get('point') == 2.5:
+                                        pinnacle_over_odd = outcome.get('price')
 
                 if pinnacle_over_odd:
                     for bookmaker in match.get('bookmakers', []):
-                        bookie_name = bookmaker['key']
+                        bookie_name = bookmaker.get('key', '')
                         if bookie_name in GREEK_BOOKIES:
-                            for market in bookmaker['markets']:
-                                if market['key'] == 'totals':
-                                    for outcome in market['outcomes']:
-                                        if outcome['name'] == 'Over' and outcome['point'] == 2.5:
-                                            greek_odd = outcome['price']
-                                            if greek_odd >= (pinnacle_over_odd + 0.25):
+                            for market in bookmaker.get('markets', []):
+                                if market.get('key') == 'totals':
+                                    for outcome in market.get('outcomes', []):
+                                        if outcome.get('name') == 'Over' and outcome.get('point') == 2.5:
+                                            greek_odd = outcome.get('price')
+                                            if greek_odd and greek_odd >= (pinnacle_over_odd + 0.25):
                                                 alert_msg = (
                                                     f"🚨 *VALUE BET ΕΝΤΟΠΙΣΤΗΚΕ!*\n\n"
-                                                    f"⚽ Αγώνας: {match['home_team']} vs {match['away_team']}\n"
+                                                    f"⚽ Αγώνας: {h_team} vs {a_team}\n"
                                                     f"🎯 Αγορά: Over 2.5 Γκολ\n\n"
                                                     f"📉 Sharp Τιμή (Pinnacle): {pinnacle_over_odd}\n"
                                                     f"🔥 Στοιχηματική: *{bookie_name.upper()}*\n"
@@ -78,6 +108,7 @@ def find_value_in_greek_bookies(home_team, away_team):
         print(f"Σφάλμα στο The Odds API: {e}")
 
 # ==================== MAIN LOOP ====================
+print("🚀 Το Betting Bot ξεκίνησε επιτυχώς!")
 while True:
     current_hour = datetime.now().hour
     if 11 <= current_hour < 20:
@@ -89,5 +120,6 @@ while True:
                 find_value_in_greek_bookies(home, away)
         time.sleep(300)
     else:
-        print("Εκτός ωραρίου Ασίας. Παύση 30 λεπτών...")
+        print("Εκτός ωραρίου Ασίας. Αναμονή 30 λεπτών...")
         time.sleep(1800)
+
