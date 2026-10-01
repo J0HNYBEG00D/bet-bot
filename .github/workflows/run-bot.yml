@@ -1,0 +1,32 @@
+name: Run Betting Bot Daily
+
+on:
+  schedule:
+    # Τρέχει κάθε μέρα στις 08:34 UTC (δηλαδή 11:34 ώρα Ελλάδος)
+    - cron: '34 8 * * *'
+  workflow_dispatch: # Σου επιτρέπει να το ξεκινάς και χειροκίνητα όποτε θες
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python Bot
+        env:
+          SHARP_API_KEY: ${{ secrets.SHARP_API_KEY }}
+          THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python bot.py
