@@ -9,7 +9,8 @@ THE_ODDS_API_KEY = os.environ.get("THE_ODDS_API_KEY", "")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
-GREEK_BOOKIES = ['bet365', 'stoiximan', 'betano']
+# 🔥 ΠΡΟΣΘΗΚΗ: Όλες οι ελληνικές στοιχηματικές που ζήτησες
+GREEK_BOOKIES = ['bet365', 'stoiximan', 'betano', 'novibet', 'superbet', 'fonbet', 'sportingbet']
 # ========================================================
 
 def send_telegram_alert(message):
@@ -28,13 +29,10 @@ def check_live_matches_sharp():
     try:
         res = requests.get(sharp_url, headers=headers, timeout=15)
         if res.status_code != 200:
-            print(f"Το SharpAPI επέστρεψε κωδικό: {res.status_code}")
             return []
             
         response = res.json()
         suspicious_matches = []
-        
-        # Ασφαλής ανάγνωση λίστας αγώνων
         matches = response.get('results', response.get('data', []))
         if not isinstance(matches, list):
             return []
@@ -44,8 +42,7 @@ def check_live_matches_sharp():
                 continue
             league = match.get('league', {}).get('name', '') if isinstance(match.get('league'), dict) else ''
             
-            if "India" in league or "Cambodia" in league:
-                # Έλεγχος πτώσης με ασφάλεια
+            if "India" in league or "Cambodia" in league or "Argentina" in league:
                 if match.get('dropping_odds', False) or match.get('odds_drop_pct', 0) >= 15:
                     suspicious_matches.append(match)
         return suspicious_matches
@@ -60,7 +57,6 @@ def find_value_in_greek_bookies(home_team, away_team):
     try:
         res = requests.get(odds_url, timeout=15)
         if res.status_code != 200:
-            print(f"Το The Odds API επέστρεψε κωδικό: {res.status_code}")
             return
             
         response = res.json()
@@ -109,9 +105,12 @@ def find_value_in_greek_bookies(home_team, away_team):
 
 # ==================== MAIN LOOP ====================
 print("🚀 Το Betting Bot ξεκίνησε επιτυχώς!")
+
+send_telegram_alert("✅ *Το Betting Bot ανανεώθηκε!* Σκανάρει: Bet365, Stoiximan, Novibet, Superbet, Fonbet, Sportingbet.")
+
 while True:
     current_hour = datetime.now().hour
-    if 11 <= current_hour < 20:
+    if 11 <= current_hour < 23:
         suspicious_list = check_live_matches_sharp()
         for match in suspicious_list:
             home = match.get('home_team', match.get('home', ''))
@@ -120,6 +119,5 @@ while True:
                 find_value_in_greek_bookies(home, away)
         time.sleep(300)
     else:
-        print("Εκτός ωραρίου Ασίας. Αναμονή 30 λεπτών...")
+        print("Νυχτερινή παύση (23:00 - 11:00). Ύπνος για 30 λεπτά...")
         time.sleep(1800)
-
