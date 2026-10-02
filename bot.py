@@ -12,12 +12,13 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
 # ==================== ΡΥΘΜΙΣΕΙΣ ====================
-# Πρωταθλήματα που μας ενδιαφέρουν (μπορείς να προσθέσεις κι άλλα)
+# Λέξεις-κλειδιά για το SharpAPI pre-filter
 PRIMARY_LEAGUES = [
-    "argentina", "brazil", "chile", "mexico", "colombia"
+    "argentina", "brazil", "chile", "mexico", "colombia",
+    "japan", "korea", "australia"
 ]
 
-# Soft bookies
+# Soft bookies που ελέγχουμε
 TARGET_BOOKIES = [
     "bet365", "pinnacle", "onexbet", "marathonbet", "unibet", "williamhill",
     "novibet", "fonbet", "superbet", "sportingbet", "stoiximan", "betano"
@@ -28,7 +29,7 @@ HOURS_AHEAD = 3
 ALERT_CACHE_FILE = Path("alert_cache.json")
 CACHE_HOURS = 3
 
-# ==================== ΒΟΗΘΗΤΙΚΕΣ ====================
+# ==================== ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ ====================
 
 def send_telegram(message: str):
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -80,18 +81,17 @@ def mark_alerted(cache: dict, key: str):
 
 def check_relevant_events_sharp() -> bool:
     """
-    Κοιτάει στο SharpAPI αν υπάρχουν live ή κοντινοί αγώνες
+    Κοιτάει στο SharpAPI αν υπάρχουν live αγώνες
     στα πρωταθλήματα που μας ενδιαφέρουν.
-    Επιστρέφει True μόνο αν βρει κάτι.
     """
     if not SHARP_API_KEY:
         print("⚠️ Λείπει SHARP_API_KEY – παραλείπω pre-filter", flush=True)
-        return True  # Αν δεν έχει key, προχωράμε κανονικά
+        return True
 
     url = "https://api.sharpapi.io/api/v1/events"
     headers = {"X-API-Key": SHARP_API_KEY}
     params = {
-        "live": "true",          # μόνο live
+        "live": "true",
         "limit": 50
     }
 
@@ -101,7 +101,7 @@ def check_relevant_events_sharp() -> bool:
 
         if res.status_code != 200:
             print(f"  SharpAPI error: {res.text[:150]}", flush=True)
-            return True  # Σε περίπτωση προβλήματος, προχωράμε
+            return True
 
         data = res.json()
         events = data.get("data", [])
@@ -125,7 +125,7 @@ def check_relevant_events_sharp() -> bool:
 
     except Exception as e:
         print(f"Σφάλμα SharpAPI: {e}", flush=True)
-        return True  # Σε σφάλμα προχωράμε για ασφάλεια
+        return True
 
 
 # ==================== THE ODDS API ====================
@@ -247,7 +247,7 @@ def main():
         print("\n✅ Τέλος κύκλου – δεν κάηκαν credits στο The Odds API", flush=True)
         return
 
-    # Βήμα 2: Μόνο αν υπάρχουν σχετικά events → καλούμε The Odds API
+    # Βήμα 2: Μόνο αν υπάρχουν σχετικά events
     if not THE_ODDS_API_KEY:
         print("❌ Λείπει THE_ODDS_API_KEY", flush=True)
         return
@@ -260,6 +260,10 @@ def main():
         "soccer_brazil_serie_b",
         "soccer_chile_campeonato",
         "soccer_mexico_ligamx",
+        "soccer_colombia_primera_a",
+        "soccer_japan_j_league",
+        "soccer_korea_kleague1",
+        "soccer_australia_aleague",
     ]
 
     for sport in sports:
