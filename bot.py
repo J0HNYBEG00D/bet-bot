@@ -9,7 +9,6 @@ THE_ODDS_API_KEY = os.environ.get("THE_ODDS_API_KEY", "")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
-# 🔥 ΠΡΟΣΘΗΚΗ: Όλες οι ελληνικές στοιχηματικές που ζήτησες
 GREEK_BOOKIES = ['bet365', 'stoiximan', 'betano', 'novibet', 'superbet', 'fonbet', 'sportingbet']
 # ========================================================
 
@@ -17,18 +16,20 @@ def send_telegram_alert(message):
     url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        print(f"Απάντηση Telegram: {res.status_code} - {res.text}", flush=True)
     except Exception as e:
-        print(f"Σφάλμα Telegram: {e}")
+        print(f"Σφάλμα Telegram: {e}", flush=True)
 
 def check_live_matches_sharp():
-    print(f"[{datetime.now().strftime('%H:%M')}] Έλεγχος SharpAPI...")
+    print(f"[{datetime.now().strftime('%H:%M')}] Έλεγχος SharpAPI...", flush=True)
     sharp_url = f"https://sharpapi.io"
     headers = {"Authorization": f"Bearer {SHARP_API_KEY}"}
     
     try:
         res = requests.get(sharp_url, headers=headers, timeout=15)
         if res.status_code != 200:
+            print(f"SharpAPI Error Code: {res.status_code}", flush=True)
             return []
             
         response = res.json()
@@ -47,11 +48,11 @@ def check_live_matches_sharp():
                     suspicious_matches.append(match)
         return suspicious_matches
     except Exception as e:
-        print(f"Σφάλμα στο SharpAPI: {e}")
+        print(f"Σφάλμα στο SharpAPI: {e}", flush=True)
         return []
 
 def find_value_in_greek_bookies(home_team, away_team):
-    print(f"🚨 Ύποπτος αγώνας! Έλεγχος στο The Odds API: {home_team} vs {away_team}")
+    print(f"🚨 Ύποπτος αγώνας! Έλεγχος στο The Odds API: {home_team} vs {away_team}", flush=True)
     odds_url = f"https://the-odds-api.com{THE_ODDS_API_KEY}&regions=eu&markets=totals"
     
     try:
@@ -101,12 +102,13 @@ def find_value_in_greek_bookies(home_team, away_team):
                                                 )
                                                 send_telegram_alert(alert_msg)
     except Exception as e:
-        print(f"Σφάλμα στο The Odds API: {e}")
+        print(f"Σφάλμα στο The Odds API: {e}", flush=True)
 
 # ==================== MAIN LOOP ====================
-print("🚀 Το Betting Bot ξεκίνησε επιτυχώς!")
+print("🚀 Το Betting Bot ξεκίνησε επιτυχώς!", flush=True)
 
-send_telegram_alert("✅ *Το Betting Bot ανανεώθηκε!* Σκανάρει: Bet365, Stoiximan, Novibet, Superbet, Fonbet, Sportingbet.")
+# Στέλνουμε το δοκιμαστικό
+send_telegram_alert("✅ *Το Betting Bot είναι Online!* Ωράριο: 11:00 - 23:00.")
 
 while True:
     current_hour = datetime.now().hour
@@ -119,5 +121,6 @@ while True:
                 find_value_in_greek_bookies(home, away)
         time.sleep(300)
     else:
-        print("Νυχτερινή παύση (23:00 - 11:00). Ύπνος για 30 λεπτά...")
+        print("Νυχτερινή παύση (23:00 - 11:00). Ύπνος για 30 λεπτά...", flush=True)
         time.sleep(1800)
+
