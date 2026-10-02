@@ -26,8 +26,20 @@ PRIMARY_SPORTS = [
 ]
 
 # Soft bookies που ελέγχουμε
-TARGET_BOOKIES = ["bet365", "pinnacle", "onexbet", "marathonbet", "unibet", "williamhill"]
-
+TARGET_BOOKIES = [
+    "bet365",
+    "pinnacle",
+    "onexbet",
+    "marathonbet",
+    "unibet",
+    "williamhill",
+    "novibet",
+    "fonbet",
+    "superbet",
+    "sportingbet",
+    "stoiximan",
+    "betano"          # το πρόσθεσα κι αυτό για καλό και για κακό
+]
 # Ελάχιστη διαφορά απόδοσης για value
 MIN_EDGE = 0.22
 
