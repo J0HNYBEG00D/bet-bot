@@ -11,35 +11,36 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
 # ==================== ΡΥΘΜΙΣΕΙΣ ====================
-# Κύρια πρωταθλήματα (υψηλή προτεραιότητα)
+# Πρωταθλήματα που σκανάρουμε (μπορείς να προσθέσεις όσα θέλεις)
 PRIMARY_SPORTS = [
     "soccer_argentina_primera_division",
     "soccer_brazil_campeonato",
     "soccer_brazil_serie_b",
     "soccer_chile_campeonato",
     "soccer_mexico_ligamx",
+    # --- Πρόσθεσε εδώ όσα θέλεις ---
+    # "soccer_colombia_primera_a",
+    # "soccer_japan_j_league",
+    # "soccer_korea_kleague1",
+    # "soccer_australia_aleague",
 ]
 
-# Δευτερεύοντα (χαμηλή προτεραιότητα - πολύ αραιά)
-SECONDARY_SPORTS = [
-    # India & Cambodia σχεδόν δεν υπάρχουν στο free tier
-    # Τα αφήνουμε για μελλοντική επέκταση
-]
-
-# Soft bookies που θέλουμε να ελέγξουμε (ό,τι υπάρχει στο eu region)
+# Soft bookies που ελέγχουμε
 TARGET_BOOKIES = ["bet365", "pinnacle", "onexbet", "marathonbet", "unibet", "williamhill"]
 
-# Ελάχιστη διαφορά απόδοσης για να θεωρηθεί value
+# Ελάχιστη διαφορά απόδοσης για value
 MIN_EDGE = 0.22
 
-# Αρχείο για να μην στέλνουμε το ίδιο alert πολλές φορές
+# Πόσο μπροστά κοιτάμε για αγώνες που ξεκινάνε σύντομα (σε ώρες)
+HOURS_AHEAD = 3
+
+# Cache για να μην στέλνουμε το ίδιο alert
 ALERT_CACHE_FILE = Path("alert_cache.json")
-CACHE_HOURS = 3  # Μην ξαναστείλεις το ίδιο alert για 3 ώρες
+CACHE_HOURS = 3
 
 # ==================== ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ ====================
 
 def send_telegram(message: str):
-    """Στέλνει μήνυμα στο Telegram με σωστό URL"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("⚠️ Λείπουν TELEGRAM_TOKEN ή CHAT_ID", flush=True)
         return
@@ -59,12 +60,10 @@ def send_telegram(message: str):
 
 
 def load_alert_cache() -> dict:
-    """Φορτώνει τα πρόσφατα alerts για να αποφύγουμε διπλότυπα"""
     if ALERT_CACHE_FILE.exists():
         try:
             with open(ALERT_CACHE_FILE, "r") as f:
                 data = json.load(f)
-            # Καθαρίζουμε παλιά entries
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=CACHE_HOURS)).isoformat()
             return {k: v for k, v in data.items() if v > cutoff}
         except Exception:
@@ -88,10 +87,33 @@ def mark_alerted(cache: dict, key: str):
     cache[key] = datetime.now(timezone.utc).isoformat()
 
 
+def is_relevant_match(match: dict) -> bool:
+    """
+    Επιστρέφει True μόνο αν ο αγώνας είναι:
+    - Live, ή
+    - Ξεκινάει μέσα στις επόμενες HOURS_AHEAD ώρες
+    """
+    commence_str = match.get("commence_time")
+    if not commence_str:
+        return False
+
+    try:
+        commence = datetime.fromisoformat(commence_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        hours_until_start = (commence - now).total_seconds() / 3600
+
+        # Live = έχει ήδη ξεκινήσει (αρνητικές ώρες) ή ξεκινάει πολύ σύντομα
+        if hours_until_start <= HOURS_AHEAD:
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def get_odds_for_sport(sport_key: str) -> list:
     """
-    Καλεί The Odds API ΜΟΝΟ για totals (Over/Under).
-    Κόστος: 1 credit ανά κλήση (για 1 market + 1 region).
+    Καλεί The Odds API μόνο για totals.
+    Κόστος: 1 credit ανά κλήση.
     """
     url = (
         f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
@@ -104,10 +126,10 @@ def get_odds_for_sport(sport_key: str) -> list:
         res = requests.get(url, timeout=15)
         remaining = res.headers.get("x-requests-remaining", "?")
         used = res.headers.get("x-requests-used", "?")
-        print(f"  [{sport_key}] Status {res.status_code} | Remaining credits: {remaining} | Used: {used}", flush=True)
+        print(f"  [{sport_key}] Status {res.status_code} | Remaining: {remaining} | Used: {used}", flush=True)
 
         if res.status_code != 200:
-            print(f"  Error body: {res.text[:200]}", flush=True)
+            print(f"  Error: {res.text[:200]}", flush=True)
             return []
 
         return res.json()
@@ -118,17 +140,23 @@ def get_odds_for_sport(sport_key: str) -> list:
 
 def find_value_bets(matches: list, sport_title: str, cache: dict):
     """
-    Ψάχνει για value σε ΟΠΟΙΟΔΗΠΟΤΕ Over line.
-    Συγκρίνει Pinnacle (sharp) με τις υπόλοιπες bookies.
+    Ψάχνει value σε ΟΠΟΙΟΔΗΠΟΤΕ Over line
+    συγκρίνοντας Pinnacle με soft bookies.
     """
+    relevant_count = 0
+
     for match in matches:
+        if not is_relevant_match(match):
+            continue
+
+        relevant_count += 1
         home = match.get("home_team", "")
         away = match.get("away_team", "")
         event_id = match.get("id", "")
 
-        pinnacle_overs = {}  # point → price
+        pinnacle_overs = {}
 
-        # 1. Βρίσκουμε όλες τις Over τιμές της Pinnacle
+        # Βρίσκουμε τις Over τιμές της Pinnacle
         for book in match.get("bookmakers", []):
             if book.get("key") == "pinnacle":
                 for market in book.get("markets", []):
@@ -143,7 +171,7 @@ def find_value_bets(matches: list, sport_title: str, cache: dict):
         if not pinnacle_overs:
             continue
 
-        # 2. Συγκρίνουμε με τις άλλες bookies
+        # Συγκρίνουμε με soft bookies
         for book in match.get("bookmakers", []):
             book_key = book.get("key", "")
             if book_key == "pinnacle" or book_key not in TARGET_BOOKIES:
@@ -169,13 +197,11 @@ def find_value_bets(matches: list, sport_title: str, cache: dict):
 
                     edge = soft_price - pinnacle_price
                     if edge >= MIN_EDGE:
-                        # Δημιουργούμε μοναδικό κλειδί για το alert
                         alert_key = f"{event_id}_{book_key}_{point}"
 
                         if already_alerted(cache, alert_key):
                             continue
 
-                        # Στέλνουμε alert
                         msg = (
                             f"🚨 *VALUE BET ΕΝΤΟΠΙΣΤΗΚΕ!*\n\n"
                             f"⚽ *{home}* vs *{away}*\n"
@@ -188,41 +214,38 @@ def find_value_bets(matches: list, sport_title: str, cache: dict):
                         )
                         send_telegram(msg)
                         mark_alerted(cache, alert_key)
-                        print(f"  ✅ Alert στάλθηκε: {home} vs {away} | Over {point} @ {book_key}", flush=True)
+                        print(f"  ✅ Alert: {home} vs {away} | Over {point} @ {book_key}", flush=True)
+
+    if relevant_count == 0:
+        print(f"  → Κανένας live / κοντινός αγώνας", flush=True)
+    else:
+        print(f"  → Ελέγχθηκαν {relevant_count} σχετικοί αγώνες", flush=True)
 
 
 # ==================== ΚΥΡΙΑ ΛΟΓΙΚΗ ====================
 
 def main():
-    print("=" * 50, flush=True)
-    print(f"🚀 Betting Bot ξεκίνησε | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
-    print("=" * 50, flush=True)
+    print("=" * 55, flush=True)
+    print(f"🚀 Betting Bot (Live + Starting Soon) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print("=" * 55, flush=True)
 
     if not THE_ODDS_API_KEY:
         print("❌ Λείπει THE_ODDS_API_KEY", flush=True)
         return
 
     cache = load_alert_cache()
-    total_alerts = 0
 
-    # --- Κύρια πρωταθλήματα ---
     for sport in PRIMARY_SPORTS:
         print(f"\n🔍 Σκανάρω: {sport}", flush=True)
         matches = get_odds_for_sport(sport)
 
         if matches:
-            # Παίρνουμε ωραίο όνομα πρωταθλήματος
-            title = matches[0].get("sport_title", sport) if matches else sport
+            title = matches[0].get("sport_title", sport)
             find_value_bets(matches, title, cache)
         else:
-            print(f"  Καμία ζωντανή/επικείμενη αναμέτρηση", flush=True)
+            print(f"  → Καμία αναμέτρηση", flush=True)
 
-        # Μικρή παύση για να μην χτυπήσουμε rate limit
-        time.sleep(1.5)
-
-    # --- Δευτερεύοντα (προς το παρόν άδεια) ---
-    # for sport in SECONDARY_SPORTS:
-    #     ...
+        time.sleep(1.2)  # Μικρή παύση μεταξύ κλήσεων
 
     save_alert_cache(cache)
     print("\n✅ Ο κύκλος ολοκληρώθηκε επιτυχώς.", flush=True)
