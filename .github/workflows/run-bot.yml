@@ -2,21 +2,23 @@ name: Run Betting Bot Daily
 
 on:
   schedule:
-    # Τρέχει κάθε μέρα στις 08:34 UTC (δηλαδή 11:34 ώρα Ελλάδος)
-    - cron: '34 8 * * *'
-  workflow_dispatch: # Σου επιτρέπει να το ξεκινάς και χειροκίνητα όποτε θες
+    # Βάρδια 1: Τρέχει κάθε μέρα στις 08:30 UTC (11:30 ώρα Ελλάδος)
+    - cron: '30 8 * * *'
+    # Βάρδια 2: Τρέχει κάθε μέρα στις 14:30 UTC (17:30 ώρα Ελλάδος)
+    - cron: '30 14 * * *'
+  workflow_dispatch: # Για να το πατάς κι εσύ χειροκίνητα
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
@@ -30,3 +32,4 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
+
