@@ -1,10 +1,11 @@
 name: Betting Bot - Dropping Odds
 
 on:
+  on:
   schedule:
-    # Κάθε 10 λεπτά από 08:30 έως 19:50 UTC = 11:30 έως 22:50 ώρα Ελλάδος
-    - cron: '30/10 8-19 * * *'
-  workflow_dispatch:  # Χειροκίνητη εκτέλεση
+    # Κάθε 10 λεπτά από τις 08:00 έως τις 20:00 UTC (11:00–23:00 Ελλάδος)
+    - cron: '*/10 8-19 * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
