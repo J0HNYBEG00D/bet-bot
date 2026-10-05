@@ -12,13 +12,18 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
 # ==================== ΡΥΘΜΙΣΕΙΣ ====================
-# Λέξεις-κλειδιά για το SharpAPI pre-filter
-PRIMARY_LEAGUES = [
-    "argentina", "brazil", "chile", "mexico", "colombia",
-    "japan", "korea", "australia"
-]
+# Mapping: λέξη-κλειδί SharpAPI → sport_key The Odds API
+LEAGUE_MAPPING = {
+    "argentina": "soccer_argentina_primera_division",
+    "brazil": ["soccer_brazil_campeonato", "soccer_brazil_serie_b"],
+    "chile": "soccer_chile_campeonato",
+    "mexico": "soccer_mexico_ligamx",
+    "colombia": "soccer_colombia_primera_a",
+    "japan": "soccer_japan_j_league",
+    "korea": "soccer_korea_kleague1",
+    "australia": "soccer_australia_aleague",
+}
 
-# Soft bookies που ελέγχουμε
 TARGET_BOOKIES = [
     "bet365", "pinnacle", "onexbet", "marathonbet", "unibet", "williamhill",
     "novibet", "fonbet", "superbet", "sportingbet", "stoiximan", "betano"
@@ -29,7 +34,7 @@ HOURS_AHEAD = 3
 ALERT_CACHE_FILE = Path("alert_cache.json")
 CACHE_HOURS = 3
 
-# ==================== ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ ====================
+# ==================== ΒΟΗΘΗΤΙΚΕΣ ====================
 
 def send_telegram(message: str):
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -77,23 +82,27 @@ def mark_alerted(cache: dict, key: str):
     cache[key] = datetime.now(timezone.utc).isoformat()
 
 
-# ==================== SHARPAPI (δωρεάν pre-filter) ====================
+# ==================== SHARPAPI PRE-FILTER ====================
 
-def check_relevant_events_sharp() -> bool:
+def get_relevant_sports_from_sharp() -> list:
     """
-    Κοιτάει στο SharpAPI αν υπάρχουν live αγώνες
-    στα πρωταθλήματα που μας ενδιαφέρουν.
+    Επιστρέφει λίστα με τα sport_keys του The Odds API
+    που αντιστοιχούν σε live events που βρήκε το SharpAPI.
     """
     if not SHARP_API_KEY:
-        print("⚠️ Λείπει SHARP_API_KEY – παραλείπω pre-filter", flush=True)
-        return True
+        print("⚠️ Λείπει SHARP_API_KEY – θα σκανάρω όλα", flush=True)
+        # Αν δεν έχει key, επιστρέφουμε όλα για ασφάλεια
+        all_sports = []
+        for v in LEAGUE_MAPPING.values():
+            if isinstance(v, list):
+                all_sports.extend(v)
+            else:
+                all_sports.append(v)
+        return all_sports
 
     url = "https://api.sharpapi.io/api/v1/events"
     headers = {"X-API-Key": SHARP_API_KEY}
-    params = {
-        "live": "true",
-        "limit": 50
-    }
+    params = {"live": "true", "limit": 80}
 
     try:
         res = requests.get(url, headers=headers, params=params, timeout=12)
@@ -101,31 +110,36 @@ def check_relevant_events_sharp() -> bool:
 
         if res.status_code != 200:
             print(f"  SharpAPI error: {res.text[:150]}", flush=True)
-            return True
+            return []
 
         data = res.json()
         events = data.get("data", [])
 
-        relevant = 0
+        found_keys = set()
         for event in events:
             league = str(event.get("league", "")).lower()
             home = event.get("home_team", "")
             away = event.get("away_team", "")
 
-            if any(l in league for l in PRIMARY_LEAGUES):
-                relevant += 1
-                print(f"  → Βρέθηκε: {home} vs {away} ({league})", flush=True)
+            for keyword, sport_key in LEAGUE_MAPPING.items():
+                if keyword in league:
+                    if isinstance(sport_key, list):
+                        found_keys.update(sport_key)
+                    else:
+                        found_keys.add(sport_key)
+                    print(f"  → Βρέθηκε: {home} vs {away} ({league})", flush=True)
+                    break
 
-        if relevant > 0:
-            print(f"✅ Βρέθηκαν {relevant} σχετικά live events → προχωράμε στο The Odds API", flush=True)
-            return True
+        if found_keys:
+            print(f"✅ Βρέθηκαν {len(found_keys)} σχετικά πρωταθλήματα → καλούμε μόνο αυτά", flush=True)
+            return list(found_keys)
         else:
-            print("→ Κανένα σχετικό live event στο SharpAPI → δεν καλούμε The Odds API", flush=True)
-            return False
+            print("→ Κανένα σχετικό live event → δεν καλούμε The Odds API", flush=True)
+            return []
 
     except Exception as e:
         print(f"Σφάλμα SharpAPI: {e}", flush=True)
-        return True
+        return []
 
 
 # ==================== THE ODDS API ====================
@@ -237,36 +251,24 @@ def find_value_bets(matches: list, sport_title: str, cache: dict):
 
 def main():
     print("=" * 60, flush=True)
-    print(f"🚀 Hybrid Bot (SharpAPI pre-filter) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"🚀 Hybrid Bot v2 (Smart pre-filter) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print("=" * 60, flush=True)
 
-    # Βήμα 1: Δωρεάν έλεγχος με SharpAPI
-    has_relevant = check_relevant_events_sharp()
+    # Βήμα 1: Βρίσκουμε ποια πρωταθλήματα έχουν live events
+    sports_to_check = get_relevant_sports_from_sharp()
 
-    if not has_relevant:
+    if not sports_to_check:
         print("\n✅ Τέλος κύκλου – δεν κάηκαν credits στο The Odds API", flush=True)
         return
 
-    # Βήμα 2: Μόνο αν υπάρχουν σχετικά events
+    # Βήμα 2: Καλούμε The Odds API ΜΟΝΟ για αυτά που βρήκαμε
     if not THE_ODDS_API_KEY:
         print("❌ Λείπει THE_ODDS_API_KEY", flush=True)
         return
 
     cache = load_alert_cache()
 
-    sports = [
-        "soccer_argentina_primera_division",
-        "soccer_brazil_campeonato",
-        "soccer_brazil_serie_b",
-        "soccer_chile_campeonato",
-        "soccer_mexico_ligamx",
-        "soccer_colombia_primera_a",
-        "soccer_japan_j_league",
-        "soccer_korea_kleague1",
-        "soccer_australia_aleague",
-    ]
-
-    for sport in sports:
+    for sport in sports_to_check:
         print(f"\n🔍 Σκανάρω The Odds API: {sport}", flush=True)
         matches = get_odds_for_sport(sport)
         if matches:
