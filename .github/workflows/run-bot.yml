@@ -2,15 +2,14 @@ name: Betting Bot - Dropping Odds
 
 on:
   schedule:
-    # Τρέχει κάθε 10 λεπτά από 08:30 έως 20:00 UTC
-    # = 11:30 έως 23:00 ώρα Ελλάδος (EEST)
+    # Κάθε 10 λεπτά από 08:30 έως 19:50 UTC = 11:30 έως 22:50 ώρα Ελλάδος
     - cron: '30/10 8-19 * * *'
-  workflow_dispatch:  # Δυνατότητα χειροκίνητης εκτέλεσης
+  workflow_dispatch:  # Χειροκίνητη εκτέλεση
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 8          # Ασφάλεια - δεν αφήνουμε να τρέξει πολύ
+    timeout-minutes: 8
 
     steps:
       - name: Checkout repository
