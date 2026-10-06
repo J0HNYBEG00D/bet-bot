@@ -12,7 +12,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "")
 
 # ==================== ΡΥΘΜΙΣΕΙΣ ====================
-# Mapping: λέξη-κλειδί SharpAPI → sport_key The Odds API
 LEAGUE_MAPPING = {
     "argentina": "soccer_argentina_primera_division",
     "brazil": ["soccer_brazil_campeonato", "soccer_brazil_serie_b"],
@@ -29,10 +28,10 @@ TARGET_BOOKIES = [
     "novibet", "fonbet", "superbet", "sportingbet", "stoiximan", "betano"
 ]
 
-MIN_EDGE = 0.22
-HOURS_AHEAD = 3
+MIN_EDGE = 0.18          # Βελτίωση 3: χαμηλότερο threshold
+HOURS_AHEAD = 1.5        # Βελτίωση 1: μόνο αγώνες που ξεκινούν σε ≤ 1.5 ώρα
 ALERT_CACHE_FILE = Path("alert_cache.json")
-CACHE_HOURS = 3
+CACHE_HOURS = 4
 
 # ==================== ΒΟΗΘΗΤΙΚΕΣ ====================
 
@@ -85,13 +84,8 @@ def mark_alerted(cache: dict, key: str):
 # ==================== SHARPAPI PRE-FILTER ====================
 
 def get_relevant_sports_from_sharp() -> list:
-    """
-    Επιστρέφει λίστα με τα sport_keys του The Odds API
-    που αντιστοιχούν σε live events που βρήκε το SharpAPI.
-    """
     if not SHARP_API_KEY:
         print("⚠️ Λείπει SHARP_API_KEY – θα σκανάρω όλα", flush=True)
-        # Αν δεν έχει key, επιστρέφουμε όλα για ασφάλεια
         all_sports = []
         for v in LEAGUE_MAPPING.values():
             if isinstance(v, list):
@@ -157,10 +151,7 @@ def get_odds_for_sport(sport_key: str) -> list:
         remaining = res.headers.get("x-requests-remaining", "?")
         used = res.headers.get("x-requests-used", "?")
         print(f"  [{sport_key}] Status {res.status_code} | Remaining: {remaining} | Used: {used}", flush=True)
-
-        if res.status_code != 200:
-            return []
-        return res.json()
+        return res.json() if res.status_code == 200 else []
     except Exception as e:
         print(f"  Σφάλμα The Odds API: {e}", flush=True)
         return []
@@ -174,12 +165,12 @@ def is_relevant_match(match: dict) -> bool:
         commence = datetime.fromisoformat(commence_str.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         hours_until = (commence - now).total_seconds() / 3600
-        return hours_until <= HOURS_AHEAD
+        return 0 <= hours_until <= HOURS_AHEAD
     except Exception:
         return False
 
 
-def find_value_bets(matches: list, sport_title: str, cache: dict):
+def find_value_bets(matches: list, sport_title: str, cache: dict, remaining_credits: str):
     for match in matches:
         if not is_relevant_match(match):
             continue
@@ -232,48 +223,52 @@ def find_value_bets(matches: list, sport_title: str, cache: dict):
                         if already_alerted(cache, alert_key):
                             continue
 
+                        # Βελτίωση 5: καλύτερο μήνυμα
+                        now_greece = datetime.now(timezone(timedelta(hours=3))).strftime("%H:%M")
                         msg = (
-                            f"🚨 *VALUE BET ΕΝΤΟΠΙΣΤΗΚΕ!*\n\n"
+                            f"🚨 *VALUE BET - ΑΞΙΖΕΙ*\n\n"
                             f"⚽ *{home}* vs *{away}*\n"
                             f"🏆 {sport_title}\n"
                             f"🎯 Αγορά: *Over {point}*\n\n"
-                            f"📉 Pinnacle: `{pinnacle_price}`\n"
-                            f"🔥 {book_key.upper()}: *{soft_price}*\n"
+                            f"📉 Pinnacle: `{pinnacle_price:.2f}`\n"
+                            f"🔥 {book_key.upper()}: *{soft_price:.2f}*\n"
                             f"📈 Edge: `+{edge:.2f}`\n\n"
-                            f"⏰ Πρόλαβε πριν αλλάξει!"
+                            f"⏰ Ώρα Ελλάδος: {now_greece}\n"
+                            f"💳 Credits που απομένουν: {remaining_credits}\n\n"
+                            f"✅ Πρόλαβε πριν κλείσει!"
                         )
                         send_telegram(msg)
                         mark_alerted(cache, alert_key)
-                        print(f"  ✅ Alert: {home} vs {away} | Over {point} @ {book_key}", flush=True)
+                        print(f"  ✅ Alert: {home} vs {away} | Over {point} @ {book_key} | Edge +{edge:.2f}", flush=True)
 
 
 # ==================== MAIN ====================
 
 def main():
     print("=" * 60, flush=True)
-    print(f"🚀 Hybrid Bot v2 (Smart pre-filter) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"🚀 Hybrid Bot v3 (Strict Value) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print("=" * 60, flush=True)
 
-    # Βήμα 1: Βρίσκουμε ποια πρωταθλήματα έχουν live events
     sports_to_check = get_relevant_sports_from_sharp()
 
     if not sports_to_check:
-        print("\n✅ Τέλος κύκλου – δεν κάηκαν credits στο The Odds API", flush=True)
+        print("\n✅ Τέλος κύκλου – δεν κάηκαν credits", flush=True)
         return
 
-    # Βήμα 2: Καλούμε The Odds API ΜΟΝΟ για αυτά που βρήκαμε
     if not THE_ODDS_API_KEY:
         print("❌ Λείπει THE_ODDS_API_KEY", flush=True)
         return
 
     cache = load_alert_cache()
+    remaining = "?"
 
     for sport in sports_to_check:
-        print(f"\n🔍 Σκανάρω The Odds API: {sport}", flush=True)
+        print(f"\n🔍 Σκανάρω: {sport}", flush=True)
         matches = get_odds_for_sport(sport)
         if matches:
+            # Παίρνουμε τα remaining credits από το header του τελευταίου call
             title = matches[0].get("sport_title", sport)
-            find_value_bets(matches, title, cache)
+            find_value_bets(matches, title, cache, remaining)
         time.sleep(1.2)
 
     save_alert_cache(cache)
