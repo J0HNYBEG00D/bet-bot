@@ -28,8 +28,8 @@ TARGET_BOOKIES = [
     "novibet", "fonbet", "superbet", "sportingbet", "stoiximan", "betano"
 ]
 
-MIN_EDGE = 0.18
-HOURS_AHEAD = 1.5
+MIN_EDGE = 0.13
+HOURS_AHEAD = 2.5
 ALERT_CACHE_FILE = Path("alert_cache.json")
 CACHE_HOURS = 4
 
@@ -236,7 +236,7 @@ def find_value_bets(matches: list, sport_title: str, cache: dict, remaining_cred
                             f"🎯 Αγορά: *Over {point}*\n\n"
                             f"📉 Pinnacle: `{pinnacle_price:.2f}`\n"
                             f"🔥 {book_key.upper()}: *{soft_price:.2f}*\n"
-                            f"📈 Edge: `+{edge:.2f}`\n\n"
+                            f"📈 Edge: `+{edge:.2f}`  ← πόσο καλύτερη είναι η απόδοση\n\n"
                             f"⏰ Ώρα Ελλάδος: {now_greece}\n"
                             f"💳 Credits που απομένουν: {remaining_credits}\n\n"
                             f"✅ Πρόλαβε πριν κλείσει!"
@@ -250,7 +250,7 @@ def find_value_bets(matches: list, sport_title: str, cache: dict, remaining_cred
 
 def main():
     print("=" * 60, flush=True)
-    print(f"🚀 Hybrid Bot v3 (Soccer Only) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"🚀 Hybrid Bot v3.1 (Edge 0.13 / 2.5h) | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print("=" * 60, flush=True)
 
     sports_to_check = get_relevant_sports_from_sharp()
